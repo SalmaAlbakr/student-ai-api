@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import joblib
 import pandas as pd
+import os
 
 app = Flask(__name__)
 
@@ -11,10 +12,9 @@ model = joblib.load("student_model.pkl")
 
 
 # =========================
-# Recommendation Engine
+# Recommendations
 # =========================
 def get_recommendations(weak_skill):
-
     recommendations_map = {
         "understanding_errors": [
             "راجع المفاهيم الأساسية من الدرس",
@@ -37,13 +37,9 @@ def get_recommendations(weak_skill):
             "حل أسئلة مركبة وتحليلية"
         ]
     }
-
     return recommendations_map.get(weak_skill, [])
 
 
-# =========================
-# Skill Names (for explanation)
-# =========================
 skills_names = {
     "understanding_errors": "الفهم",
     "recall_errors": "التذكر",
@@ -54,77 +50,65 @@ skills_names = {
 
 
 # =========================
+# Home Route
+# =========================
+@app.route("/")
+def home():
+    return "API is running"
+
+
+# =========================
 # Predict Route
 # =========================
 @app.route("/predict", methods=["POST"])
 def predict():
+    try:
+        data = request.get_json()
 
-    data = request.json
+        features = pd.DataFrame([{
+            "accuracy": data["accuracy"],
+            "understanding_errors": data["understanding_errors"],
+            "recall_errors": data["recall_errors"],
+            "calculation_errors": data["calculation_errors"],
+            "attention_errors": data["attention_errors"],
+            "analysis_errors": data["analysis_errors"],
+        }])
 
-    # =========================
-    # Prepare features for ML
-    # =========================
-    features = pd.DataFrame([{
-        "accuracy": data["accuracy"],
-        "understanding_errors": data["understanding_errors"],
-        "recall_errors": data["recall_errors"],
-        "calculation_errors": data["calculation_errors"],
-        "attention_errors": data["attention_errors"],
-        "analysis_errors": data["analysis_errors"],
-    }])
+        final_level = model.predict(features)[0]
 
-    # =========================
-    # ML Prediction
-    # =========================
-    final_level = model.predict(features)[0]
+        skills = {
+            "understanding_errors": data["understanding_errors"],
+            "recall_errors": data["recall_errors"],
+            "calculation_errors": data["calculation_errors"],
+            "attention_errors": data["attention_errors"],
+            "analysis_errors": data["analysis_errors"],
+        }
 
-    # =========================
-    # Find weakest skill
-    # =========================
-    skills = {
-        "understanding_errors": data["understanding_errors"],
-        "recall_errors": data["recall_errors"],
-        "calculation_errors": data["calculation_errors"],
-        "attention_errors": data["attention_errors"],
-        "analysis_errors": data["analysis_errors"],
-    }
+        weakest_skill = max(skills, key=skills.get)
+        weakest_name = skills_names.get(weakest_skill, "غير معروف")
 
-    weakest_skill = max(skills, key=skills.get)
+        recommendations = get_recommendations(weakest_skill)
 
-    weakest_name = skills_names.get(weakest_skill, "غير معروف")
+        return jsonify({
+            "final_level": str(final_level),
+            "weakest_skill": weakest_skill,
+            "weak_area_message": f"أنت تحتاج تحسين مهارة {weakest_name}",
+            "main_tip": recommendations[0] if recommendations else "استمر في التدريب",
+            "recommendations": recommendations,
+            "scores": data
+        })
 
-    # =========================
-    # Explanation for student
-    # =========================
-    weak_area_message = f"أنت تحتاج تحسين مهارة {weakest_name}"
-
-    # =========================
-    # Recommendations
-    # =========================
-    recommendations = get_recommendations(weakest_skill)
-
-    main_tip = recommendations[0] if recommendations else "استمر في التدريب وحاول تحل أسئلة أكثر"
-
-    # =========================
-    # Response
-    # =========================
-    return jsonify({
-        "final_level": final_level,
-        "weakest_skill": weakest_skill,
-        "weak_area_message": weak_area_message,
-        "main_tip": main_tip,
-        "recommendations": recommendations,
-        "scores": data
-    })
+    except Exception as e:
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Hello"
-
-
-
+# =========================
+# Run (Railway safe)
+# =========================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+    
